@@ -1,0 +1,8 @@
+﻿# 构建产物
+/target
+# 运行日志
+*.log
+# 本地打包
+combo-overlay-release.zip
+# 临时截图
+*.png
