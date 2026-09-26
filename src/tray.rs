@@ -126,6 +126,7 @@ fn show_menu() {
         let _ = PostMessageW(hwnd, WM_NULL, WPARAM(0), LPARAM(0));
         crate::set_menu_active(false);
         if cmd.0 != 0 {
+            crate::log_line(&format!("menu cmd={}", cmd.0));
             crate::handle_tray_cmd(cmd.0 as usize);
         }
     }

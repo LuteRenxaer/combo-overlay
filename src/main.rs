@@ -89,7 +89,7 @@ fn menu_active() -> bool {
 }
 
 // ---------- 日志 ----------
-fn log_line(msg: &str) {
+pub fn log_line(msg: &str) {
     let mut p = std::env::current_exe().unwrap_or_default();
     p.set_file_name("combo-overlay.log");
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&p) {
@@ -266,24 +266,29 @@ pub fn current_chart_mode() -> bool {
 
 /// 托盘菜单命令执行。
 pub fn handle_tray_cmd(cmd: usize) {
+    log_line(&format!("handle cmd={cmd}"));
     match cmd {
         crate::tray::CMD_SIZE_BIG => apply_size(1.0),
         crate::tray::CMD_SIZE_MID => apply_size(0.6),
         crate::tray::CMD_SIZE_SMALL => apply_size(0.4),
         crate::tray::CMD_SOUND => {
-            let mut g = STATE.lock().unwrap();
-            if let Some(s) = g.as_mut() {
-                s.sound_on = !s.sound_on;
-            }
+            {
+                let mut g = STATE.lock().unwrap();
+                if let Some(s) = g.as_mut() {
+                    s.sound_on = !s.sound_on;
+                }
+            } // 先释放锁再取 debug 标志，避免同线程重入死锁
             if debug_enabled() {
                 log_line("sound toggled");
             }
         }
         crate::tray::CMD_CHART_MODE => {
-            let mut g = STATE.lock().unwrap();
-            if let Some(s) = g.as_mut() {
-                s.chart_mode = !s.chart_mode;
-            }
+            {
+                let mut g = STATE.lock().unwrap();
+                if let Some(s) = g.as_mut() {
+                    s.chart_mode = !s.chart_mode;
+                }
+            } // 先释放锁再取 debug 标志，避免同线程重入死锁
             if debug_enabled() {
                 log_line("chart mode toggled");
             }
