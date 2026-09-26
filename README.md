@@ -21,7 +21,7 @@ cargo run --release
 target\release\combo-overlay.exe
 ```
 
-程序为单实例：已有一个实例在运行时，重复启动会自动退出。
+程序为单实例：已有一个实例在运行时，再次启动会弹出提示并自动退出（避免重复计数）。
 
 ## 热键
 

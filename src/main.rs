@@ -27,7 +27,7 @@ use windows::Win32::System::Console::GetConsoleWindow;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetMessageW, GetSystemMetrics, MessageBoxW, PostQuitMessage, ShowWindow, TranslateMessage,
-    SHOW_WINDOW_CMD, SM_CXSCREEN, SM_CYSCREEN, SetProcessDPIAware, MB_OK, MSG,
+    SHOW_WINDOW_CMD, SM_CXSCREEN, SM_CYSCREEN, SetProcessDPIAware, MB_ICONINFORMATION, MB_OK, MSG,
 };
 
 use crate::audio::{SoundKind, SoundSet};
@@ -345,10 +345,16 @@ fn main() {
     let chart_start = args.iter().any(|a| a == "--chart")
         || std::env::var("COMBO_OVERLAY_CHART").map(|v| v == "1").unwrap_or(false);
 
-    // 单实例：已有实例在跑则直接退出（避免重复计数/音效叠加）
+    // 单实例：已有实例在跑则提示并退出（避免重复计数/音效叠加，也避免“双击无反应”的困惑）
     unsafe {
         let mutex = CreateMutexW(None, true, windows::core::w!("Local\\combo-overlay-singleton"));
         if GetLastError() == ERROR_ALREADY_EXISTS {
+            let _ = MessageBoxW(
+                None,
+                windows::core::w!("combo-overlay 已在运行（右下角托盘有白色圆点图标）。"),
+                windows::core::w!("combo-overlay"),
+                MB_OK | MB_ICONINFORMATION,
+            );
             return;
         }
         let _ = mutex; // 保持句柄存活（进程结束自动释放）
