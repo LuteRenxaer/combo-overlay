@@ -4,7 +4,8 @@
 //! - 屏幕顶部一个**完全透明、无边框、置顶、点击穿透**的悬浮窗；
 //! - 数字 = 你按下过的键盘键数（全局钩子只计数）；
 //! - 每按一键播放一次 `click.ogg`，数字弹跳一下；
-//! - 热键：`F9` 清零，`F10` 退出。
+//! - 热键：`F9` 清零，`F10` 退出；
+//! - 托盘菜单：大小档位 / 按键音效 / 写谱模式 / 清零 / 退出。
 
 //! 注意：控制台子系统 + 启动即隐藏控制台窗口（本机 GUI 子系统收不到 WH_KEYBOARD_LL 事件）。
 
@@ -21,14 +22,15 @@ use std::sync::Mutex;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use ab_glyph::FontArc;
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{GetLastError, HWND, ERROR_ALREADY_EXISTS};
 use windows::Win32::System::Console::GetConsoleWindow;
+use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetMessageW, GetSystemMetrics, MessageBoxW, PostQuitMessage, ShowWindow, TranslateMessage,
     SHOW_WINDOW_CMD, SM_CXSCREEN, SM_CYSCREEN, SetProcessDPIAware, MB_OK, MSG,
 };
 
-use crate::audio::ClickSound;
+use crate::audio::{SoundKind, SoundSet};
 use crate::combo::{Combo, Layout};
 use crate::hook::KeyHook;
 use crate::overlay::Overlay;
@@ -38,6 +40,11 @@ use crate::overlay::Overlay;
 const VK_F9: u32 = 0x78;
 /// 退出
 const VK_F10: u32 = 0x79;
+/// 写谱模式音效键：Q / R → click，W → drag，E → flick
+const VK_Q: u32 = 0x51;
+const VK_W: u32 = 0x57;
+const VK_E: u32 = 0x45;
+const VK_R: u32 = 0x52;
 /// 点击音量（0.0 ~ 1.0）
 const CLICK_VOLUME: f32 = 0.9;
 /// 默认大小档位（中号，数字约为屏高 9%）
@@ -49,7 +56,7 @@ struct AppState {
     combo: Combo,
     /// 当前按住中的键（用于把“长按自动重复”排除在计数外，只算真实按下次数）
     pressed: HashSet<u32>,
-    audio: Option<ClickSound>,
+    audio: Option<SoundSet>,
     overlay: Overlay,
     font: FontArc,
     layout: Layout,
@@ -59,6 +66,8 @@ struct AppState {
     size_scale: f32,
     /// 按键音效开关
     sound_on: bool,
+    /// 写谱模式：Q/R→click、W→drag、E→flick
+    chart_mode: bool,
     /// 需要重绘（按键/清零后置位；动画期间持续重绘）
     dirty: bool,
     /// 静止帧计数（调试心跳用）
@@ -130,6 +139,19 @@ fn resolve_asset(args: &[String], name: &str, arg_name: &str) -> Option<PathBuf>
     None
 }
 
+/// 按键对应的音效：写谱模式下 Q/R→click、W→drag、E→flick，其余键默认 click。
+fn sound_for_key(chart_mode: bool, vk: u32) -> SoundKind {
+    if !chart_mode {
+        return SoundKind::Click;
+    }
+    match vk {
+        VK_Q | VK_R => SoundKind::Click,
+        VK_W => SoundKind::Drag,
+        VK_E => SoundKind::Flick,
+        _ => SoundKind::Click,
+    }
+}
+
 // ---------- 按键事件（由键盘钩子回调触发） ----------
 fn handle_key(vk: u32, down: bool) {
     let mut g = STATE.lock().unwrap();
@@ -159,13 +181,14 @@ fn handle_key(vk: u32, down: bool) {
         if s.pressed.insert(vk) {
             s.combo.register_press();
             s.dirty = true;
+            let kind = sound_for_key(s.chart_mode, vk);
             if s.sound_on {
                 if let Some(a) = &s.audio {
-                    a.play();
+                    a.play(kind);
                 }
             }
             if s.debug {
-                log_line(&format!("KEYDOWN vk={vk} count={}", s.combo.value));
+                log_line(&format!("KEYDOWN vk={vk} kind={kind:?} count={}", s.combo.value));
             }
         }
     } else {
@@ -236,6 +259,11 @@ pub fn current_sound_on() -> bool {
     STATE.lock().unwrap().as_ref().map(|s| s.sound_on).unwrap_or(true)
 }
 
+/// 当前写谱模式开关。
+pub fn current_chart_mode() -> bool {
+    STATE.lock().unwrap().as_ref().map(|s| s.chart_mode).unwrap_or(false)
+}
+
 /// 托盘菜单命令执行。
 pub fn handle_tray_cmd(cmd: usize) {
     match cmd {
@@ -249,6 +277,15 @@ pub fn handle_tray_cmd(cmd: usize) {
             }
             if debug_enabled() {
                 log_line("sound toggled");
+            }
+        }
+        crate::tray::CMD_CHART_MODE => {
+            let mut g = STATE.lock().unwrap();
+            if let Some(s) = g.as_mut() {
+                s.chart_mode = !s.chart_mode;
+            }
+            if debug_enabled() {
+                log_line("chart mode toggled");
             }
         }
         crate::tray::CMD_RESET => {
@@ -294,6 +331,10 @@ fn debug_enabled() -> bool {
 
 // ---------- 入口 ----------
 fn main() {
+    // panic 也写入日志，便于定位崩溃点
+    std::panic::set_hook(Box::new(|info| {
+        log_line(&format!("PANIC: {info}"));
+    }));
     // 隐藏控制台窗口（保留控制台挂载，LL 钩子才能收到事件）
     unsafe {
         let _ = ShowWindow(GetConsoleWindow(), SHOW_WINDOW_CMD(0)); // SW_HIDE
@@ -301,7 +342,19 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let debug = args.iter().any(|a| a == "--debug")
         || std::env::var("COMBO_OVERLAY_DEBUG").map(|v| v == "1").unwrap_or(false);
-    log_line(&format!("starting, debug={debug}"));
+    let chart_start = args.iter().any(|a| a == "--chart")
+        || std::env::var("COMBO_OVERLAY_CHART").map(|v| v == "1").unwrap_or(false);
+
+    // 单实例：已有实例在跑则直接退出（避免重复计数/音效叠加）
+    unsafe {
+        let mutex = CreateMutexW(None, true, windows::core::w!("Local\\combo-overlay-singleton"));
+        if GetLastError() == ERROR_ALREADY_EXISTS {
+            return;
+        }
+        let _ = mutex; // 保持句柄存活（进程结束自动释放）
+    }
+
+    log_line(&format!("starting, debug={debug}, chart={chart_start}"));
 
     unsafe {
         let _ = SetProcessDPIAware(); // 使用物理像素，避免高 DPI 缩放错位
@@ -313,18 +366,20 @@ fn main() {
     let font_bytes = std::fs::read(&font_path).unwrap_or_else(|_| fatal(&format!("读取字体失败: {}", font_path.display())));
     let font = FontArc::try_from_vec(font_bytes).unwrap_or_else(|e| fatal(&format!("字体解析失败: {e}")));
 
-    // 点击音效：失败则静默降级为“只计数不发声”
+    // 音效：click / drag / flick（失败则静默降级为“只计数不发声”）
     let click_path = resolve_asset(&args, "click.ogg", "--click");
-    let audio = match click_path {
-        Some(p) => match ClickSound::new(&p, CLICK_VOLUME) {
+    let drag_path = resolve_asset(&args, "drag.ogg", "--drag");
+    let flick_path = resolve_asset(&args, "flick.ogg", "--flick");
+    let audio = match (click_path, drag_path, flick_path) {
+        (Some(c), Some(d), Some(f)) => match SoundSet::load(&c, &d, &f, CLICK_VOLUME) {
             Ok(a) => Some(a),
             Err(e) => {
                 log_line(&format!("audio disabled: {e}"));
                 None
             }
         },
-        None => {
-            log_line("click.ogg 未找到，仅计数不发声（可用 --click <路径> 指定）");
+        _ => {
+            log_line("音效文件缺失，仅计数不发声（--click/--drag/--flick 可指定路径）");
             None
         }
     };
@@ -351,6 +406,7 @@ fn main() {
         sh,
         size_scale: DEFAULT_SCALE,
         sound_on: true,
+        chart_mode: chart_start,
         dirty: true,
         heartbeat: 0,
         debug,

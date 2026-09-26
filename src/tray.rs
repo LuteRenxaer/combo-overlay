@@ -1,6 +1,6 @@
 //! 系统托盘：通知区图标 + 右键设置菜单。
 //!
-//! 菜单提供：大小档位（大 15% / 中 9% / 小 6%）、按键音效开关、清零、退出。
+//! 菜单提供：大小档位（大 15% / 中 9% / 小 6%）、按键音效开关、写谱模式、清零、退出。
 //! 菜单命令由 `crate::handle_tray_cmd` 执行；状态读取走 `crate::current_*` 函数。
 
 use std::ffi::c_void;
@@ -30,6 +30,7 @@ pub const CMD_SIZE_BIG: usize = 1001;
 pub const CMD_SIZE_MID: usize = 1002;
 pub const CMD_SIZE_SMALL: usize = 1003;
 pub const CMD_SOUND: usize = 1004;
+pub const CMD_CHART_MODE: usize = 1007;
 pub const CMD_RESET: usize = 1005;
 pub const CMD_EXIT: usize = 1006;
 
@@ -93,6 +94,7 @@ fn show_menu() {
         let mid = (scale - 0.6).abs() < 0.01;
         let small = (scale - 0.4).abs() < 0.01;
         let sound_on = crate::current_sound_on();
+        let chart_mode = crate::current_chart_mode();
 
         let item = |checked: bool| if checked { MF_CHECKED } else { MENU_ITEM_FLAGS(0) };
 
@@ -101,6 +103,7 @@ fn show_menu() {
         let _ = AppendMenuW(menu, MF_STRING | item(small), CMD_SIZE_SMALL, w!("小号（6%）"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING | item(sound_on), CMD_SOUND, w!("按键音效"));
+        let _ = AppendMenuW(menu, MF_STRING | item(chart_mode), CMD_CHART_MODE, w!("写谱模式（Q/W/E/R 音效）"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, CMD_RESET, w!("清零 (F9)"));
         let _ = AppendMenuW(menu, MF_STRING, CMD_EXIT, w!("退出 (F10)"));

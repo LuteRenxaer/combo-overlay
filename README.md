@@ -4,7 +4,7 @@
 
 - 屏幕顶部一个**完全透明、无边框、置顶、点击穿透**的悬浮窗（不抢焦点、不占任务栏）；
 - 大号数字 = 你按下过的键盘键数（全局键盘钩子**只计数、不记录按键内容**）；
-- 每按一键播放一次 `assets/click.ogg`，数字弹跳一下（1.45 倍 → 回落，0.22s 缓出）；
+- 每按一键播放一次音效，数字弹跳一下（1.45 倍 → 回落，0.22s 缓出）；
 - 数字与 `COMBO` 标签的排版、白色配色、顶部居中布局，均复刻自 `game.rs` 的 `ui()`（`ComboNumber`/`Combo` 分支），字体使用 `assets/font.ttf`（即游戏里 PGR_FONT 同款）。
 - **实现说明**：程序采用**控制台子系统 + 启动即隐藏控制台窗口**。实测本机环境下 `WH_KEYBOARD_LL` 全局钩子在 GUI 子系统（`#![windows_subsystem = "windows"]`）下收不到任何按键事件，改为控制台子系统后稳定工作；控制台在 `main()` 里立刻 `ShowWindow(SW_HIDE)`，对用户不可见。
 
@@ -21,12 +21,31 @@ cargo run --release
 target\release\combo-overlay.exe
 ```
 
+程序为单实例：已有一个实例在运行时，重复启动会自动退出。
+
 ## 热键
 
 | 按键 | 作用 |
 |---|---|
 | `F9` | 连击清零 |
 | `F10` | 退出程序 |
+| `Q` / `W` / `E` / `R` | **写谱模式**下切换音效（见下） |
+
+## 写谱模式
+
+适合给音游（phigros 类）写谱时**用键盘听音符音效**。开启后按键音效随音符类型切换：
+
+| 按键 | 音效 |
+|---|---|
+| `Q` | `click.ogg` |
+| `W` | `drag.ogg` |
+| `E` | `flick.ogg` |
+| `R` | `click.ogg`（同 Q） |
+
+其他键仍播放默认 `click.ogg`。开启方式：
+
+- 托盘菜单勾选 **写谱模式（Q/W/E/R 音效）**（可随时切换）
+- 或启动时加 `--chart` / 环境变量 `COMBO_OVERLAY_CHART=1`，启动即进入写谱模式
 
 ## 系统托盘
 
@@ -35,7 +54,8 @@ target\release\combo-overlay.exe
 | 菜单项 | 作用 |
 |---|---|
 | 大号（15%）/ 中号（9%）/ 小号（6%） | 切换悬浮文字大小（当前项打勾） |
-| 按键音效 | 开/关每次按键的 click.ogg 播放 |
+| 按键音效 | 开/关每次按键的音效播放 |
+| 写谱模式（Q/W/E/R 音效） | 开/关 Q/W/E/R 音效切换（当前项打勾） |
 | 清零 (F9) | 连击清零 |
 | 退出 (F10) | 退出程序 |
 
@@ -44,8 +64,11 @@ target\release\combo-overlay.exe
 ## 参数
 
 - `--click <路径>`：指定 click.ogg（默认找 exe 旁 `assets/click.ogg`）
+- `--drag <路径>`：指定 drag.ogg（默认同上）
+- `--flick <路径>`：指定 flick.ogg（默认同上）
 - `--font <路径>`：指定字体（默认同上）
-- `--debug` 或环境变量 `COMBO_OVERLAY_DEBUG=1`：把每次按键写入 exe 旁的 `combo-overlay.log`
+- `--chart` 或环境变量 `COMBO_OVERLAY_CHART=1`：启动即进入写谱模式
+- `--debug` 或环境变量 `COMBO_OVERLAY_DEBUG=1`：把每次按键（含音效种类）写入 exe 旁的 `combo-overlay.log`
 
 ## 说明
 
